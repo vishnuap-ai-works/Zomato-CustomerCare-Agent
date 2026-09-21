@@ -46,8 +46,9 @@ sequenceDiagram
     participant User
     participant UI as Streamlit UI
     participant Agent as Agent API (FastAPI)
-    participant LLM as LLM (LangChain)
+    participant LLM as Zomato Customer Care Agent
     participant Services as Microservices (Order/User)
+    participant DB as Shared Database (SQLite)
 
     User->>UI: Sends Message
     UI->>Agent: POST /api/chat (with session_id)
@@ -58,6 +59,8 @@ sequenceDiagram
         LLM-->>LLM: Reasoning
         opt Needs to use a Tool
             LLM->>Services: Execute Tool (REST Call)
+            Services->>DB: Query / Update Data
+            DB-->>Services: Return Data
             Services-->>LLM: JSON Response (Observation)
         end
     end
@@ -70,5 +73,5 @@ sequenceDiagram
 1. **User Request**: The user submits a message via the Streamlit UI, which is forwarded to `/api/chat`.
 2. **Context Resolution**: The `agent/main.py` checks if the `session_id` is currently authenticated. It retrieves the conversation history from memory and injects it into the LangChain Executor context.
 3. **Reasoning & Tool Selection**: The LLM analyzes the request and decides if it needs to act autonomously using a tool (e.g., calling `track_driver(order_id="ORD123")`).
-4. **Tool Execution**: If a tool is invoked, it makes a REST call over the internal Docker network to the appropriate microservice (Order or User API). The JSON response is parsed and fed back to the LLM as observation context.
+4. **Tool Execution**: If a tool is invoked, it makes a REST call over the internal Docker network to the appropriate microservice (Order or User API). The microservice then queries or updates the **Shared Mock Database (SQLite)**. The JSON response is parsed and fed back to the LLM as observation context.
 5. **Final Output Synthesis**: The LLM processes the tool output, determines if further action is needed, or synthesizes a final conversational response and returns it to the Streamlit UI.
