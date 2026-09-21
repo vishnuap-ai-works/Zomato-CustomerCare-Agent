@@ -64,6 +64,10 @@ def chat(request: ChatRequest):
     # Extract final text
     final_response = "Sorry, I encountered an error."
     if "messages" in result and len(result["messages"]) > 0:
-        final_response = result["messages"][-1].content
+        last_msg = result["messages"][-1]
+        if isinstance(last_msg, dict):
+            final_response = last_msg.get("content", str(last_msg))
+        else:
+            final_response = last_msg.content
         
     return {"response": final_response}
