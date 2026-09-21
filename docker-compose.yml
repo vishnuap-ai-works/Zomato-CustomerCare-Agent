@@ -1,0 +1,40 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - USER_SERVICE_URL=http://user_management:8002
+      - ORDER_SERVICE_URL=http://order_service:8001
+    depends_on:
+      - user_management
+      - order_service
+
+  user_management:
+    build:
+      context: .
+      dockerfile: mock_services/zomato_user_management_service/Dockerfile
+    ports:
+      - "8002:8002"
+
+  order_service:
+    build:
+      context: .
+      dockerfile: mock_services/zomato_order_service/Dockerfile
+    ports:
+      - "8001:8001"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=http://agent:8000
+    depends_on:
+      - agent
