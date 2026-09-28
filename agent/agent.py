@@ -18,7 +18,7 @@ if MODEL_TYPE == "ollama":
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
     llm = ChatOllama(model=ollama_model, base_url=ollama_base_url, temperature=0)
 else:
-    llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), temperature=0)
+    llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), base_url='https://openai.vocareum.com/v1', temperature=0)
 
 base_system_prompt = """You are a highly capable and proactive Zomato Customer Care Agent.
 You assist customers with live status updates, delay reasons, address modifications, missing items, quality complaints, cancellations, and subscriptions.
@@ -31,27 +31,34 @@ CRITICAL RULES:
 5. DRIVER TRACKING: If a user asks where their order is, use `track_driver` and provide the ETA. Offer to `contact_delivery_partner` if they have special instructions.
 6. AUTHENTICATION (CRITICAL):
 {auth_context}
-5. PROACTIVE: After addressing a customer's query, always proactively ask them a relevant follow-up question, such as "What can I help you with next?"
+7. PROACTIVE: After addressing a customer's query, always proactively ask them a relevant follow-up question, such as "What can I help you with next?"
+8. NO HALLUCINATION: You MUST ALWAYS use your provided tools to fetch real data (like orders, wallet balance, user details). NEVER make up or guess orders, prices, or statuses!
+9. NO STALE DATA: Never reuse data from the chat history to answer queries about dynamic data (like current orders, balances, statuses). ALWAYS call the tool again to fetch the most up-to-date information.
 """
 
 def get_agent_executor(session_context: dict):
-    # Dynamically build system prompt based on session
+    from agent.tools import send_otp, verify_otp
+    # Dynamically build system prompt and tool list based on session
     if session_context.get("is_authenticated"):
         auth_context = f"""
         User IS authenticated with mobile number: {session_context['mobile_number']}.
         DO NOT ask the user for their mobile number again.
         You can directly call order, payment, and subscription tools using this mobile number.
         """
+        active_tools = tools
     else:
         auth_context = """
-        User is NOT authenticated.
-        If they ask a question requiring account access (like "Where is my order?"), you MUST:
-        - Ask for their mobile number.
-        - Use the `send_otp` tool.
-        - Ask the user for the OTP.
-        - Use the `verify_otp` tool.
-        Only after successful verification can you use other tools.
+        CRITICAL: The user is NOT authenticated. You currently ONLY have access to the `send_otp` and `verify_otp` tools.
+        You CANNOT perform any actions regarding orders, payments, or account details until the user is authenticated.
+        If the user asks for ANY account-related action (like checking an order, cancelling, getting refunds), you MUST immediately say:
+        "I need to authenticate your account first. Could you please provide your mobile number?"
+        DO NOT ask for order IDs or any other details until authentication is fully complete.
+        - Step 1: Get mobile number.
+        - Step 2: Use `send_otp`.
+        - Step 3: Get OTP from user.
+        - Step 4: Use `verify_otp`.
         """
+        active_tools = [send_otp, verify_otp]
         
     system_prompt = base_system_prompt.format(auth_context=auth_context)
     
@@ -62,7 +69,7 @@ def get_agent_executor(session_context: dict):
     
     agent = create_agent(
         model=llm,
-        tools=tools,
+        tools=active_tools,
         system_prompt=system_prompt,
     )
     

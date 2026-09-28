@@ -45,6 +45,20 @@ def get_orders(mobile_number: str, active_only: bool = False, db: Session = Depe
         } for o in orders
     ]}
 
+@app.get("/order/{order_id}")
+def get_order(order_id: int, db: Session = Depends(get_db)):
+    o = db.query(OrderDB).filter(OrderDB.id == order_id).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {
+        "id": o.id,
+        "restaurant": o.restaurant,
+        "status": o.status,
+        "delay_reason": o.delay_reason,
+        "address": o.address,
+        "created_at": o.created_at
+    }
+
 @app.get("/order/{order_id}/items")
 def get_order_items(order_id: int, db: Session = Depends(get_db)):
     items = db.query(OrderItemDB).filter(OrderItemDB.order_id == order_id).all()

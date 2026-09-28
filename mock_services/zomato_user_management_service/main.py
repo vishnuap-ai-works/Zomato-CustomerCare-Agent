@@ -42,7 +42,7 @@ def send_otp(req: OTPRequest, db: Session = Depends(get_db)):
         db.commit()
     else:
         logger.info(f"OTP sent to existing user: {req.mobile_number}")
-    return {"message": "OTP sent successfully. Hint: use 1234"}
+    return {"message": "OTP sent successfully."}
 
 @app.post("/verify_otp")
 def verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db)):

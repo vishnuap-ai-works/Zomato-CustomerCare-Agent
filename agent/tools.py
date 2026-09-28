@@ -26,7 +26,7 @@ ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://order_service:8001")
 
 @tool
 def send_otp(mobile_number: str) -> str:
-    """Sends an OTP to the user's mobile number for authentication. Always call this when a user wants to access their account."""
+    """Sends an OTP to the user's mobile number for authentication. Call this ONLY if the user is NOT authenticated yet."""
     try:
         response = requests.post(f"{USER_SERVICE_URL}/send_otp", json={"mobile_number": mobile_number})
         return response.json().get("message", "OTP sent successfully.")
@@ -66,6 +66,17 @@ def get_orders(mobile_number: str, active_only: bool = False) -> str:
         if response.status_code == 200:
             return str(response.json())
         return "Failed to fetch orders."
+    except Exception as e:
+        return str(e)
+
+@tool
+def get_order_details(order_id: int) -> str:
+    """Gets the complete details of a specific order (status, restaurant, delay reason, address, etc)."""
+    try:
+        response = requests.get(f"{ORDER_SERVICE_URL}/order/{order_id}")
+        if response.status_code == 200:
+            return str(response.json())
+        return "Failed to fetch order details."
     except Exception as e:
         return str(e)
 
@@ -185,6 +196,7 @@ def get_all_tools():
         verify_otp,
         get_customer_details,
         get_orders,
+        get_order_details,
         get_order_items,
         get_payment_details,
         cancel_order,
