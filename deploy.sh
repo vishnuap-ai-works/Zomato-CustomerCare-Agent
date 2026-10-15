@@ -25,3 +25,4 @@ docker-compose up --build -d
 echo "Deployment complete!"
 echo "Frontend is available at: http://localhost:8501"
 echo "Backend is available at: http://localhost:8000"
+echo "MCP Server is available at: http://localhost:8003"

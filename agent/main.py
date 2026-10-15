@@ -31,7 +31,7 @@ class ClearChatRequest(BaseModel):
     session_id: str
 
 @app.post("/api/chat")
-def chat(request: ChatRequest):
+async def chat(request: ChatRequest):
     logger.info(f"Incoming chat message for session {request.session_id}")
     # Manage session
     session_context = get_session(request.session_id)
@@ -45,7 +45,7 @@ def chat(request: ChatRequest):
             messages.append(AIMessage(content=msg["content"]))
             
     # Run Agent
-    result = run_agent(request.message, messages, session_context)
+    result = await run_agent(request.message, messages, session_context)
     
     tool_calls_info = []
 
@@ -53,6 +53,24 @@ def chat(request: ChatRequest):
         if isinstance(msg, dict):
             return msg.get(attr, default)
         return getattr(msg, attr, default)
+
+    def extract_text_content(content) -> str:
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    if "text" in item:
+                        parts.append(str(item["text"]))
+                    else:
+                        parts.append(str(item))
+                else:
+                    parts.append(str(item))
+            return " ".join(parts)
+        return str(content) if content is not None else ""
 
     if "messages" in result:
         # Find index of last human message
@@ -73,25 +91,30 @@ def chat(request: ChatRequest):
         # Hook: Check if verify_otp was successfully called
         for i, msg in enumerate(result["messages"]):
             name = get_attr(msg, "name")
-            content = get_attr(msg, "content", "")
-            if name == "verify_otp" and content and "OTP verified successfully" in content:
+            content_text = extract_text_content(get_attr(msg, "content", ""))
+            tool_call_id = get_attr(msg, "tool_call_id")
+            if (name == "verify_otp" or "OTP verified successfully" in content_text) and "OTP verified successfully" in content_text:
                 # Find the AIMessage before this ToolMessage that contains the tool_call args
                 for prev_msg in reversed(result["messages"][:i]):
                     tool_calls = get_attr(prev_msg, "tool_calls")
                     if tool_calls:
+                        found_auth = False
                         for call in tool_calls:
-                            if call.get("name") == "verify_otp":
+                            if (tool_call_id and call.get("id") == tool_call_id) or call.get("name") == "verify_otp":
                                 mobile_number = call.get("args", {}).get("mobile_number")
                                 if mobile_number:
-                                    update_session_auth(request.session_id, mobile_number)
+                                    update_session_auth(request.session_id, str(mobile_number))
                                     logger.info(f"Session {request.session_id} successfully authenticated for mobile {mobile_number}")
-                                break
+                                    found_auth = True
+                                    break
+                        if found_auth:
+                            break
 
     # Extract final text
     final_response = "Sorry, I encountered an error."
     if "messages" in result and len(result["messages"]) > 0:
         last_msg = result["messages"][-1]
-        final_response = get_attr(last_msg, "content", str(last_msg))
+        final_response = extract_text_content(get_attr(last_msg, "content", str(last_msg)))
         
     return {"response": final_response, "tool_calls": tool_calls_info}
 

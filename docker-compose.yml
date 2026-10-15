@@ -8,8 +8,20 @@ services:
     env_file:
       - .env
     environment:
+      - MCP_SERVER_URL=http://mcp_server:8003/sse
+    depends_on:
+      - mcp_server
+
+  mcp_server:
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
       - USER_SERVICE_URL=http://user_management:8002
       - ORDER_SERVICE_URL=http://order_service:8001
+      - PORT=8003
     depends_on:
       - user_management
       - order_service

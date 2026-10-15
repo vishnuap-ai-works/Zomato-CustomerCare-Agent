@@ -24,3 +24,4 @@ docker-compose up --build -d
 Write-Host "Deployment complete!" -ForegroundColor Green
 Write-Host "Frontend is available at: http://localhost:8501"
 Write-Host "Backend is available at: http://localhost:8000"
+Write-Host "MCP Server is available at: http://localhost:8003"

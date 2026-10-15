@@ -4,12 +4,10 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents.factory import create_agent
 import os
 import logging
-from agent.tools import get_all_tools
+from agent.tools import get_tools_for_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("agent_core")
-
-tools = get_all_tools()
 
 MODEL_TYPE = os.getenv("MODEL_TYPE", "openai").lower()
 
@@ -36,16 +34,14 @@ CRITICAL RULES:
 9. NO STALE DATA: Never reuse data from the chat history to answer queries about dynamic data (like current orders, balances, statuses). ALWAYS call the tool again to fetch the most up-to-date information.
 """
 
-def get_agent_executor(session_context: dict):
-    from agent.tools import send_otp, verify_otp
-    # Dynamically build system prompt and tool list based on session
-    if session_context.get("is_authenticated"):
+async def get_agent_executor(session_context: dict):
+    is_authenticated = session_context.get("is_authenticated", False)
+    if is_authenticated:
         auth_context = f"""
         User IS authenticated with mobile number: {session_context['mobile_number']}.
         DO NOT ask the user for their mobile number again.
         You can directly call order, payment, and subscription tools using this mobile number.
         """
-        active_tools = tools
     else:
         auth_context = """
         CRITICAL: The user is NOT authenticated. You currently ONLY have access to the `send_otp` and `verify_otp` tools.
@@ -56,55 +52,43 @@ def get_agent_executor(session_context: dict):
         - Step 1: Get mobile number.
         - Step 2: Use `send_otp`.
         - Step 3: Get OTP from user.
-        - Step 4: Use `verify_otp`.
+        - Step 4: Use `verify_otp`. Once verified, greet the user by name, confirm that they are authenticated, and ask how you can assist them with their request.
+        IMPORTANT: NEVER claim or pretend that you have already cancelled an order, modified an order, processed a refund, or fetched account details in this step, because you do not have access to those tools until authentication is complete!
         """
-        active_tools = [send_otp, verify_otp]
-        
+
+    # Dynamically retrieve tools from the MCP server
+    active_tools = await get_tools_for_session(is_authenticated)
     system_prompt = base_system_prompt.format(auth_context=auth_context)
-    
+
     user_prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
         ("user", "{input}")
     ])
-    
+
     agent = create_agent(
         model=llm,
         tools=active_tools,
         system_prompt=system_prompt,
     )
-    
+
     return agent, user_prompt
 
-def run_agent(input_text: str, history_messages: list, session_context: dict):
+async def run_agent(input_text: str, history_messages: list, session_context: dict):
     logger.info(f"Initializing agent execution for session. Authenticated: {session_context.get('is_authenticated')}")
-    agent, user_prompt = get_agent_executor(session_context)
-    
+    agent, user_prompt = await get_agent_executor(session_context)
+
     prompt_val = user_prompt.invoke({"history": history_messages, "input": input_text})
-    
-    # Convert to dicts for agent.invoke
+
+    # Convert to dicts for agent.ainvoke
     messages_list = []
     for m in prompt_val.messages:
         role = "user" if m.type == "human" else "assistant"
         messages_list.append({"role": role, "content": m.content})
-        
+
     try:
-        logger.info(f"Invoking LLM with {len(messages_list)} messages...")
-        response = agent.invoke({"messages": messages_list})
+        logger.info(f"Invoking LLM asynchronously with {len(messages_list)} messages...")
+        response = await agent.ainvoke({"messages": messages_list})
         logger.info("Agent invocation completed successfully.")
-        
-        # Check if the agent successfully called verify_otp
-        # Langchain agent.invoke returns intermediate steps or we can just infer from the response.
-        # But a safer way is if the user successfully verified, the response text might indicate it.
-        # However, a robust way is to hook the verify_otp tool. We'll handle this in main.py by parsing the output or just letting the frontend send the mobile number if it gets it.
-        # Wait, if the tool runs in the agent, the agent just gets the string "OTP verified successfully."
-        # We can scan the agent's messages to see if that string is in it.
-        
-        for msg in response.get("messages", []):
-            if hasattr(msg, 'content') and "OTP verified successfully" in msg.content:
-                # We need to extract the mobile number they verified.
-                # It's in the tool call arguments. We will just return a flag to main.py to handle it.
-                pass
-                
         return response
     except Exception as e:
         logger.error(f"Agent Execution Error: {str(e)}", exc_info=True)

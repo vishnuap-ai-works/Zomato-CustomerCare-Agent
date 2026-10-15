@@ -61,6 +61,7 @@ An autonomous, multi-agent customer care system built with LangChain, FastAPI, a
 4. **Access the Application:**
    - **Frontend (Chat UI)**: [http://localhost:8501](http://localhost:8501)
    - **Agent API (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
+   - **MCP Server (SSE & Health)**: [http://localhost:8003/health](http://localhost:8003/health) (SSE stream at `http://localhost:8003/sse`)
    - **Order Service API**: [http://localhost:8001/docs](http://localhost:8001/docs)
    - **User Service API**: [http://localhost:8002/docs](http://localhost:8002/docs)
 
@@ -93,11 +94,12 @@ To safely demonstrate the agent's capabilities without exposing real user data, 
    - *"Renew my Zomato subscription."*
 
 ## Project Structure
-- `agent/`: The AI orchestrator microservice. Contains LangChain execution logic, session tracking, and patched tool routing.
+- `agent/`: The AI orchestrator microservice. Connects to the MCP server to load and execute tools, manages sessions and LangChain ReAct loops.
+- `mcp_server/`: Dedicated Model Context Protocol (FastMCP) microservice. Hosts all agent tools, handles tool schemas, and dispatches HTTP requests to downstream microservices.
 - `mock_services/`
   - `data/`: Contains the SQLite database initialization and seeding script (`database.py`) and schema definitions (`models.py`).
   - `zomato_order_service/`: FastAPI microservice managing active orders, driver routing, and complaints.
   - `zomato_user_management_service/`: FastAPI microservice managing authentication, wallets, and subscriptions.
 - `frontend/`: Streamlit Chat UI.
-- `docker-compose.yml`: Binds the 4 services together over a shared Docker network.
+- `docker-compose.yml`: Binds the 5 services together over a shared Docker network.
 - `deploy.sh`: Primary build and deployment script.

@@ -31,7 +31,9 @@ def get_session(session_id: str) -> dict:
     return session
 
 def update_session_auth(session_id: str, mobile_number: str):
-    if session_id in session_store:
-        session_store[session_id]["mobile_number"] = mobile_number
-        session_store[session_id]["is_authenticated"] = True
-        session_store[session_id]["last_activity"] = datetime.utcnow()
+    if session_id not in session_store:
+        get_session(session_id)
+    session_store[session_id]["mobile_number"] = mobile_number
+    session_store[session_id]["is_authenticated"] = True
+    session_store[session_id]["last_activity"] = datetime.utcnow()
+

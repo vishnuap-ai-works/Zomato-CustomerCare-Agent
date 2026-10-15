@@ -1,210 +1,36 @@
 import os
-import requests
 import logging
-from langchain_core.tools import tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("agent_tools")
+logger = logging.getLogger("agent_mcp_client")
 
-# Tracing network calls made by tools
-_original_get = requests.get
-_original_post = requests.post
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp_server:8003/sse")
 
-def _logged_get(url, **kwargs):
-    logger.info(f"Tool executing HTTP GET: {url}")
-    return _original_get(url, **kwargs)
+logger.info(f"Configuring Agent MCP client pointing to: {MCP_SERVER_URL}")
 
-def _logged_post(url, **kwargs):
-    logger.info(f"Tool executing HTTP POST: {url} with payload {kwargs.get('json', {})}")
-    return _original_post(url, **kwargs)
+mcp_client = MultiServerMCPClient({
+    "zomato_mcp": {
+        "transport": "sse",
+        "url": MCP_SERVER_URL
+    }
+})
 
-requests.get = _logged_get
-requests.post = _logged_post
+_tools_cache = None
 
-USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://user_management:8002")
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://order_service:8001")
+async def get_all_tools(force_refresh: bool = False):
+    """Fetches all tools from the remote MCP server via SSE transport."""
+    global _tools_cache
+    if _tools_cache is None or force_refresh:
+        logger.info(f"Fetching tools dynamically from MCP server at {MCP_SERVER_URL}...")
+        _tools_cache = await mcp_client.get_tools()
+        logger.info(f"Successfully loaded {len(_tools_cache)} tools from MCP: {[t.name for t in _tools_cache]}")
+    return _tools_cache
 
-@tool
-def send_otp(mobile_number: str) -> str:
-    """Sends an OTP to the user's mobile number for authentication. Call this ONLY if the user is NOT authenticated yet."""
-    try:
-        response = requests.post(f"{USER_SERVICE_URL}/send_otp", json={"mobile_number": mobile_number})
-        return response.json().get("message", "OTP sent successfully.")
-    except Exception as e:
-        return f"Failed to send OTP: {str(e)}"
-
-# Note: verify_otp is handled specially in agent.py because it needs to update the session.
-# We will define a standard tool here that just calls the API, but the agent's wrapper will hook it.
-@tool
-def verify_otp(mobile_number: str, otp: str) -> str:
-    """Verifies the OTP provided by the user. Must be called after send_otp."""
-    try:
-        response = requests.post(f"{USER_SERVICE_URL}/verify_otp", json={"mobile_number": mobile_number, "otp": otp})
-        if response.status_code == 200:
-            return response.json().get("message", "OTP verified successfully. The user is now authenticated.")
-        else:
-            return "Invalid OTP. Authentication failed."
-    except Exception as e:
-        return f"Failed to verify OTP: {str(e)}"
-
-@tool
-def get_customer_details(mobile_number: str) -> str:
-    """Gets customer profile details."""
-    try:
-        response = requests.get(f"{USER_SERVICE_URL}/customer/{mobile_number}")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Customer not found."
-    except Exception as e:
-        return str(e)
-
-@tool
-def get_orders(mobile_number: str, active_only: bool = False) -> str:
-    """Gets orders for the authenticated user. Set active_only=True to get only active/ongoing orders."""
-    try:
-        response = requests.get(f"{ORDER_SERVICE_URL}/orders/{mobile_number}?active_only={str(active_only).lower()}")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to fetch orders."
-    except Exception as e:
-        return str(e)
-
-@tool
-def get_order_details(order_id: int) -> str:
-    """Gets the complete details of a specific order (status, restaurant, delay reason, address, etc)."""
-    try:
-        response = requests.get(f"{ORDER_SERVICE_URL}/order/{order_id}")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to fetch order details."
-    except Exception as e:
-        return str(e)
-
-@tool
-def get_order_items(order_id: int) -> str:
-    """Gets the items inside a specific order."""
-    try:
-        response = requests.get(f"{ORDER_SERVICE_URL}/order/{order_id}/items")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to fetch order items."
-    except Exception as e:
-        return str(e)
-
-@tool
-def get_payment_details(order_id: int) -> str:
-    """Gets payment details for a specific order."""
-    try:
-        response = requests.get(f"{ORDER_SERVICE_URL}/order/{order_id}/payment")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to fetch payment details."
-    except Exception as e:
-        return str(e)
-
-@tool
-def cancel_order(order_id: int) -> str:
-    """Cancels a specific order."""
-    try:
-        response = requests.post(f"{ORDER_SERVICE_URL}/order/{order_id}/cancel")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to cancel order."
-    except Exception as e:
-        return str(e)
-
-@tool
-def update_subscription(mobile_number: str, has_subscription: bool) -> str:
-    """Updates the subscription status for the user."""
-    try:
-        response = requests.post(f"{USER_SERVICE_URL}/subscription/{mobile_number}/update", json={"has_subscription": has_subscription})
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to update subscription."
-    except Exception as e:
-        return str(e)
-
-@tool
-def update_order_address(order_id: int, new_address: str) -> str:
-    """Updates the delivery address for a specific order."""
-    try:
-        response = requests.post(f"{ORDER_SERVICE_URL}/order/{order_id}/address", json={"new_address": new_address})
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to update order address."
-    except Exception as e:
-        return str(e)
-
-@tool
-def get_wallet_balance(mobile_number: str) -> str:
-    """Gets the user's current wallet balance."""
-    try:
-        response = requests.get(f"{USER_SERVICE_URL}/wallet/{mobile_number}")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to fetch wallet balance."
-    except Exception as e:
-        return str(e)
-
-@tool
-def check_refund_status(order_id: int) -> str:
-    """Checks the refund status of a cancelled or compensated order."""
-    try:
-        response = requests.get(f"{ORDER_SERVICE_URL}/order/{order_id}/refund")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to fetch refund status."
-    except Exception as e:
-        return str(e)
-
-@tool
-def track_driver(order_id: int) -> str:
-    """Gets the live location and ETA of the delivery partner."""
-    try:
-        response = requests.get(f"{ORDER_SERVICE_URL}/order/{order_id}/driver")
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to track driver."
-    except Exception as e:
-        return str(e)
-
-@tool
-def contact_delivery_partner(order_id: int, message: str) -> str:
-    """Sends an SMS instruction/message to the delivery partner."""
-    try:
-        response = requests.post(f"{ORDER_SERVICE_URL}/order/{order_id}/driver/contact", json={"instruction": message})
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to contact driver."
-    except Exception as e:
-        return str(e)
-
-@tool
-def file_order_complaint(order_id: int, issue_details: str) -> str:
-    """Files a complaint for an order (e.g., missing items, bad quality) and automatically processes a refund."""
-    try:
-        response = requests.post(f"{ORDER_SERVICE_URL}/order/{order_id}/complaint", json={"issue_description": issue_details})
-        if response.status_code == 200:
-            return str(response.json())
-        return "Failed to file complaint."
-    except Exception as e:
-        return str(e)
-
-def get_all_tools():
-    return [
-        send_otp,
-        verify_otp,
-        get_customer_details,
-        get_orders,
-        get_order_details,
-        get_order_items,
-        get_payment_details,
-        cancel_order,
-        update_subscription,
-        update_order_address,
-        get_wallet_balance,
-        check_refund_status,
-        track_driver,
-        contact_delivery_partner,
-        file_order_complaint
-    ]
+async def get_tools_for_session(is_authenticated: bool):
+    """Returns tools filtered by authentication state."""
+    tools = await get_all_tools()
+    if is_authenticated:
+        return tools
+    # When unauthenticated, only OTP authentication tools are permitted
+    return [t for t in tools if t.name in ["send_otp", "verify_otp"]]
